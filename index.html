@@ -280,7 +280,7 @@ const S={
   q:'', sample:LS('sample')||'', size:LS('size')||40, view:LS('view')||'grid', sort:'rel',
   src:'all', major:null, subs:new Set(), era:null, mood:null, opt:LS('opt')||{ko:false,pv:false,vf:false,lat:true,com:false},
   shown:60, favs:LS('favs')||{}, folders:LS('folders')||['K-POP 로고','본문용','레트로','시즌그리팅'], favMode:LS('favMode')||'folder', favFolder:null,
-  cfg:LS('cfg')||{}, queue:LS('queue')||[], kitFams:new Set(LS('kitFams')||[])
+  cfg:LS('cfg')||{}, queue:LS('queue')||[], kitFams:new Set(LS('kitFams')||[]), adobeOn:!!LS('adobeOn'), akits:[]
 };
 const DEFAULT_API='https://script.google.com/macros/s/AKfycbz5UhKDReNbLSy3m3D--3wY5joT-oePkdGPQkZb9FjnveH9uERAcSBUsc3rGQo_9lvW/exec';
 const DEFAULT_SHEET='https://docs.google.com/spreadsheets/d/1MC7Y8wzcjTmolnnvHZgHC3aFjUOxDjjZtt1Ke877Pqc/edit';
@@ -292,8 +292,8 @@ if(!S.cfg.token && DEFAULT_TOKEN) S.cfg.token=DEFAULT_TOKEN;
 /* ---------- load ---------- */
 async function load(){
   try{
-    const r=await fetch('fonts.json?v=1792924990'); const j=await r.json();
-    S.data=j.fonts; S.data.forEach((f,i)=>{f._i=i; S.byId[f.id]=f; if(f.s==='g'){ f._w=(f.wt&&f.wt.length)?f.wt.reduce((a,b)=>Math.abs(b-400)<Math.abs(a-400)?b:a):400; } f._q=(f.n+' '+(f.k||'')+' '+(f.d||'')+' '+(f.fo||'')+' '+(f.tg||[]).join(' ')).toLowerCase();});
+    const r=await fetch('fonts.json?v=1792935928'); const j=await r.json();
+    S.data=j.fonts; S.akits=j.akits||[]; S.data.forEach((f,i)=>{f._i=i; S.byId[f.id]=f; if(f.s==='a'&&f.fw){ f._w=f.fw; } if(f.s==='g'){ f._w=(f.wt&&f.wt.length)?f.wt.reduce((a,b)=>Math.abs(b-400)<Math.abs(a-400)?b:a):400; } f._q=(f.n+' '+(f.k||'')+' '+(f.d||'')+' '+(f.fo||'')+' '+(f.tg||[]).join(' ')).toLowerCase();});
   }catch(e){ $('#out').innerHTML='<div class="empty">폰트 데이터를 불러오지 못했어요.<br>새로고침 해주세요.</div>'; return; }
   $('#sample').value=S.sample; $('#fS').classList.toggle('has',!!S.sample);
   $('#size').value=S.size; $('#sizeV').textContent=S.size; document.documentElement.style.setProperty('--pvs',S.size+'px');
@@ -305,6 +305,7 @@ const loaded=new Set(); let gQueue=[], gTimer=null;
 function wantFont(f){
   if(loaded.has(f.id)) return; loaded.add(f.id);
   if(f.s==='g'){ gQueue.push(f); clearTimeout(gTimer); gTimer=setTimeout(flushG,40); }
+  else if(f.s==='a' && S.adobeOn && f.kt!=null){ loadAKit(f.kt); }
   else if(f.s==='k' && f.ff){ const st=document.createElement('style'); st.textContent=kCss(f); document.head.appendChild(st); }
 }
 function flushG(){
@@ -317,9 +318,20 @@ function kCss(f){ return (f.ff||[]).map(([u,w,st])=>{ const url=u.startsWith('~'
 function famCss(f){
   if(f.s==='g') return `'${f.n}'`;
   if(f.s==='k') return `'${f.cf}'`;
-  if(f.s==='a') return `'${f.id.slice(2)}'`;
+  if(f.s==='a') return `'${f.cf||f.id.slice(2)}'`;
 }
-function canPreview(f){ return f.s!=='a' || S.kitFams.has(f.id.slice(2)); }
+function canPreview(f){ return f.s!=='a' || (S.adobeOn && f.kt!=null) || S.kitFams.has(f.id.slice(2)); }
+const akLoaded={}; let akChain=Promise.resolve();
+function loadAKit(i){
+  const id=S.akits[i]; if(!id||akLoaded[id]) return; akLoaded[id]=1;
+  akChain=akChain.then(()=>new Promise(res=>{ const s=document.createElement('script'); s.src='https://use.typekit.net/'+id+'.js'; s.onload=()=>{ try{ Typekit.load({async:true,active:res,inactive:res}); }catch(e){res()} setTimeout(res,4000); }; s.onerror=res; document.head.appendChild(s); }).then(()=>fixKit(i)));
+}
+const tokn=x=>String(x).toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).sort().join('-');
+function fixKit(i){
+  const fams=new Set(); document.fonts.forEach(ff=>fams.add(ff.family.replace(/["']/g,'')));
+  const byTok={}; fams.forEach(n=>byTok[tokn(n)]=n);
+  S.data.forEach(f=>{ if(f.s!=='a'||f.kt!==i||fams.has(f.cf)) return; const m=byTok[tokn(f.cf)]||byTok[tokn(f.cf).replace(/(^|-)\d+(-|$)/g,'$1').replace(/^-|-$/g,'')]; if(m){ f.cf=m; document.querySelectorAll(`.card[data-id="${CSS.escape(f.id)}"] .pv:not(.nopv)`).forEach(p=>p.style.fontFamily=`'${m}','Asta Sans'`); } });
+}
 function pvText(f){
   if(S.sample) return S.sample;
   return (f.sc||[]).includes('ko') ? DEF_KO : DEF_LA;
@@ -418,7 +430,8 @@ function cardHTML(f){
     .concat([`<span class="tg era">${era?era[1]:''}${f.y&&f.eh!=='style'?' · '+(f.y<1000?'고대':f.y):''}</span>`])
     .concat(f.w>1?[`<span class="tg mono">${f.w}W</span>`]:[]).concat(f.v?[`<span class="tg mono">VAR</span>`]:[]);
   const prev = pv ? `<div class="pv" style="font-family:${esc(famCss(f))},'Asta Sans';${f._w?'font-weight:'+f._w:''}">${esc(pvText(f))}</div>`
-    : `<div class="pv nopv"><div class="ph">Adobe 폰트는 웹 프로젝트(키트)에 넣으면 여기서 바로 미리보기 돼요 · 탭해서 Adobe에서 보기</div></div>`;
+    : (f.kt!=null ? `<div class="pv nopv"><div class="ph">Adobe 폰트 미리보기가 꺼져 있어요 <button class="btn" data-adobeon="1" style="height:30px;margin-left:6px">켜기</button></div></div>`
+      : `<div class="pv nopv"><div class="ph">미리보기 준비 안 된 Adobe 폰트 · 탭해서 Adobe에서 보기</div></div>`);
   return `<div class="card" data-id="${esc(f.id)}"><div class="top"><div style="flex:1;min-width:0"><div class="nm">${esc(f.n)}</div><div class="sub2">${esc(sub)}</div></div><button class="star ${fav?'on':''}" data-star="${esc(f.id)}" title="즐겨찾기">${ICON.star}</button></div>${prev}<div class="tags">${tags.join('')}</div>${fav&&fav.m?`<div class="memo">${esc(fav.m)}</div>`:''}</div>`;
 }
 let io=null;
@@ -505,7 +518,7 @@ async function openDetail(id){
   const licLine = f.s==='g' ? (f.lc==='OFL'?'SIL Open Font License — 상업적 사용 가능':f.lc==='APACHE2'?'Apache 2.0 — 상업적 사용 가능':f.lc==='UFL'?'Ubuntu Font Licence — 상업적 사용 가능':f.lc) : f.s==='a' ? 'Adobe Fonts 라이선스 — Creative Cloud 구독 중 상업적 사용 가능(활성화 필요)' : '';
   $('#sheet').className='sheet';
   $('#sheet').innerHTML=`<div class="shh"><h2>${esc(f.n)}<span class="ttl2">${esc([f.fo,f.d].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(' · '))}</span></h2><button class="star ${fav?'on':''}" data-star="${esc(f.id)}" style="margin:0">${ICON.star}</button><button class="ib" data-close>${ICON.close}</button></div>
-   ${pv?`<div class="dpv" id="dpv" data-id="${esc(f.id)}" style="font-family:${esc(famCss(f))},'Asta Sans';${f._w?'font-weight:'+f._w:''}" contenteditable="true" spellcheck="false">${esc(pvText(f))}</div>`:`<div class="pv nopv" style="margin-bottom:12px"><div class="ph">이 Adobe 폰트는 아직 웹 프로젝트(키트)에 없어서 미리보기가 안 돼요. Adobe Fonts 페이지에서 ‘웹 프로젝트에 추가’ 후 설정 › 동기화하면 내 텍스트로 볼 수 있어요.</div></div>`}
+   ${pv?`<div class="dpv" id="dpv" data-id="${esc(f.id)}" style="font-family:${esc(famCss(f))},'Asta Sans';${f._w?'font-weight:'+f._w:''}" contenteditable="true" spellcheck="false">${esc(pvText(f))}</div>`:`<div class="pv nopv" style="margin-bottom:12px"><div class="ph">${f.kt!=null?'Adobe 폰트 미리보기가 꺼져 있어요. 설정에서 ‘Adobe 폰트 미리보기’를 켜면 내 텍스트로 볼 수 있어요.':'이 폰트는 웹 프로젝트에 넣을 수 없는 폰트예요. Adobe 페이지에서 확인해주세요.'}</div></div>`}
    ${wts}
    <div class="kv">
      <div>소스</div><div><span class="src-dot s${f.s}"></span>${SRC[f.s]}</div>
@@ -527,7 +540,7 @@ async function openDetail(id){
   const d=await getDesc(f); if(d) $('#dDesc').textContent=d;
 }
 async function getDesc(f){
-  const src=f.s; if(!S.desc[src]){ try{ S.desc[src]=await (await fetch('desc_'+src+'.json?v=1792924990')).json(); }catch(e){ S.desc[src]={}; } }
+  const src=f.s; if(!S.desc[src]){ try{ S.desc[src]=await (await fetch('desc_'+src+'.json?v=1792935928')).json(); }catch(e){ S.desc[src]={}; } }
   return S.desc[src][f.id]||'';
 }
 function fmtDate(d){ const m=/^(\d{4})-(\d\d)-(\d\d)/.exec(d||''); if(!m) return d||''; const w='일월화수목금토'[new Date(+m[1],m[2]-1,+m[3]).getDay()]; return `${m[1].slice(2)}.${m[2]}.${m[3]} <span style="color:var(--tx3);font-size:12px">${w}</span>`; }
@@ -607,12 +620,13 @@ function openSettings(){
   $('#sheet').innerHTML=`<div class="shh"><h2>설정</h2><button class="ib" data-close>${ICON.close}</button></div>
    <div class="lab">즐겨찾기 시트 연결 (Apps Script 웹앱 주소)</div><input class="inp" id="cApi" value="${esc(c.api||'')}" placeholder="https://script.google.com/macros/s/…/exec">
    <div class="lab">쓰기 키</div><input class="inp" id="cTok" value="${esc(c.token||'')}" placeholder="시트에서 설정한 키" type="password">
-   <div class="lab">Adobe 웹 프로젝트 ID (쉼표로 여러 개)</div><input class="inp" id="cKit" value="${esc((c.kits||[]).join(', '))}" placeholder="예: abc1def">
-   <p class="hint" style="margin-top:8px">Adobe Fonts › 웹 프로젝트에 폰트를 추가하고 프로젝트 ID를 넣으면 그 폰트들도 샘플텍스트로 미리보기 돼요. 도메인에 iamhyona.github.io 를 넣어두세요.</p>
+   <label class="sw"><span>Adobe 폰트 미리보기<br><span class="hint">내 Adobe 웹 프로젝트(SPECIMEN)로 Adobe 폰트를 샘플텍스트에 적용 — 이 기기에서만 켜짐</span></span><input type="checkbox" id="cAdobe" ${S.adobeOn?'checked':''}></label>
+   <div class="lab">추가 Adobe 웹 프로젝트 ID (선택)</div><input class="inp" id="cKit" value="${esc((c.kits||[]).join(', '))}" placeholder="예: abc1def">
+
    <div class="btns"><button class="btn" id="kitR">키트 다시 읽기</button><span style="flex:1"></span><button class="btn pri" id="cSave">저장</button></div>
    <p class="hint" style="margin-top:16px">데이터 · Google Fonts ${cnt(f=>f.s==='g').toLocaleString()} · Adobe Fonts ${cnt(f=>f.s==='a').toLocaleString()} · 한글 무료(눈누) ${cnt(f=>f.s==='k').toLocaleString()}</p>`;
   openOv();
-  $('#cSave').onclick=async()=>{ c.api=$('#cApi').value.trim(); c.token=$('#cTok').value.trim(); c.kits=$('#cKit').value.split(/[,\s]+/).map(s=>s.trim()).filter(Boolean); SS('cfg',c); loadKits(); const n=await refreshKitFams(); enqueue({a:'kits',list:c.kits}); closeOv(); toast('저장 · 키트 폰트 '+n+'개'); render(true); pull(); };
+  $('#cSave').onclick=async()=>{ S.adobeOn=$('#cAdobe').checked; SS('adobeOn',S.adobeOn); c.api=$('#cApi').value.trim(); c.token=$('#cTok').value.trim(); c.kits=$('#cKit').value.split(/[,\s]+/).map(s=>s.trim()).filter(Boolean); SS('cfg',c); loadKits(); const n=await refreshKitFams(); enqueue({a:'kits',list:c.kits}); closeOv(); toast('저장 · 키트 폰트 '+n+'개'); render(true); pull(); };
   $('#kitR').onclick=async()=>{ const n=await refreshKitFams(); toast('키트 폰트 '+n+'개'); render(true); };
 }
 function openOv(){ $('#ov').classList.add('show'); document.body.style.overflow='hidden'; }
@@ -636,6 +650,7 @@ document.addEventListener('click',e=>{
   if(d.era!==undefined){ S.era=(S.tab==='era'&&S.era===d.era)?null:(d.era||null); renderFilters(); render(); return; }
   if(d.mood!==undefined){ S.mood=d.mood||null; renderFilters(); render(); return; }
   if(d.v){ S.view=d.v; SS('view',S.view); document.querySelectorAll('.vbtn').forEach(b=>b.classList.toggle('on',b===t)); render(true); return; }
+  if(d.adobeon){ e.stopPropagation(); S.adobeOn=true; SS('adobeOn',true); loaded.clear(); render(true); toast('Adobe 미리보기 켜짐'); return; }
   if(d.star){ e.stopPropagation(); openFav(d.star); return; }
   if(d.close!==undefined){ closeOv(); return; }
   if(d.copy){ navigator.clipboard?.writeText(d.copy); toast('이름 복사됨'); return; }
