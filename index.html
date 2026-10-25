@@ -278,7 +278,7 @@ const ICON={
 const S={
   tab:'browse', data:[], byId:{}, desc:{},
   q:'', sample:LS('sample')||'', size:LS('size')||40, view:LS('view')||'grid', sort:'rel',
-  src:'all', major:null, subs:new Set(), era:null, mood:null, opt:LS('opt')||{ko:false,pv:false,vf:false,lat:true,com:false},
+  src:'all', major:null, subs:new Set(), era:null, mood:null, wt:null, wd:null, opt:LS('opt')||{ko:false,pv:false,vf:false,lat:true,com:false},
   shown:60, favs:LS('favs')||{}, folders:LS('folders')||['K-POP 로고','본문용','레트로','시즌그리팅'], favMode:LS('favMode')||'folder', favFolder:null,
   cfg:LS('cfg')||{}, queue:LS('queue')||[], kitFams:new Set(LS('kitFams')||[]), adobeOn:!!LS('adobeOn'), akits:[]
 };
@@ -292,7 +292,7 @@ if(!S.cfg.token && DEFAULT_TOKEN) S.cfg.token=DEFAULT_TOKEN;
 /* ---------- load ---------- */
 async function load(){
   try{
-    const r=await fetch('fonts.json?v=1792935928'); const j=await r.json();
+    const r=await fetch('fonts.json?v=1792955296'); const j=await r.json();
     S.data=j.fonts; S.akits=j.akits||[]; S.data.forEach((f,i)=>{f._i=i; S.byId[f.id]=f; if(f.s==='a'&&f.fw){ f._w=f.fw; } if(f.s==='g'){ f._w=(f.wt&&f.wt.length)?f.wt.reduce((a,b)=>Math.abs(b-400)<Math.abs(a-400)?b:a):400; } f._q=(f.n+' '+(f.k||'')+' '+(f.d||'')+' '+(f.fo||'')+' '+(f.tg||[]).join(' ')).toLowerCase();});
   }catch(e){ $('#out').innerHTML='<div class="empty">폰트 데이터를 불러오지 못했어요.<br>새로고침 해주세요.</div>'; return; }
   $('#sample').value=S.sample; $('#fS').classList.toggle('has',!!S.sample);
@@ -305,7 +305,8 @@ const loaded=new Set(); let gQueue=[], gTimer=null;
 function wantFont(f){
   if(loaded.has(f.id)) return; loaded.add(f.id);
   if(f.s==='g'){ gQueue.push(f); clearTimeout(gTimer); gTimer=setTimeout(flushG,40); }
-  else if(f.s==='a' && S.adobeOn && f.kt!=null){ loadAKit(f.kt); }
+  else if(f.s==='a' && f.gf && !(S.adobeOn && f.kt!=null)){ gQueue.push({n:f.gf,_w:f._w||400}); clearTimeout(gTimer); gTimer=setTimeout(flushG,40); }
+  else if(f.s==='a' && S.adobeOn && f.kt!=null){ loadAKit(f.kt); if(f.gf){ gQueue.push({n:f.gf,_w:f._w||400}); clearTimeout(gTimer); gTimer=setTimeout(flushG,40); } }
   else if(f.s==='k' && f.ff){ const st=document.createElement('style'); st.textContent=kCss(f); document.head.appendChild(st); }
 }
 function flushG(){
@@ -318,9 +319,9 @@ function kCss(f){ return (f.ff||[]).map(([u,w,st])=>{ const url=u.startsWith('~'
 function famCss(f){
   if(f.s==='g') return `'${f.n}'`;
   if(f.s==='k') return `'${f.cf}'`;
-  if(f.s==='a') return `'${f.cf||f.id.slice(2)}'`;
+  if(f.s==='a') return (S.adobeOn&&f.kt!=null) ? `'${f.cf||f.id.slice(2)}'${f.gf?`,'${f.gf}'`:''}` : `'${f.gf}'`;
 }
-function canPreview(f){ return f.s!=='a' || (S.adobeOn && f.kt!=null) || S.kitFams.has(f.id.slice(2)); }
+function canPreview(f){ return f.s!=='a' || !!f.gf || (S.adobeOn && f.kt!=null) || S.kitFams.has(f.id.slice(2)); }
 const akLoaded={}; let akChain=Promise.resolve();
 function loadAKit(i){
   const id=S.akits[i]; if(!id||akLoaded[id]) return; akLoaded[id]=1;
@@ -354,6 +355,8 @@ function baseFilter(f, skip){
   if(skip!=='major' && S.subs.size && !(f.sb||[]).some(s=>S.subs.has(s))) return false;
   if(skip!=='era' && S.era && f.e!==S.era) return false;
   if(skip!=='mood' && S.mood && !(f.mo||[]).includes(S.mood)) return false;
+  if(skip!=='wt' && S.wt){ if(S.wt==='l'&&!f.wl) return false; if(S.wt==='h'&&!f.wh) return false; if(S.wt==='m'&&!((f.w||1)>=6)) return false; if(S.wt==='v'&&!f.v) return false; }
+  if(skip!=='wd' && S.wd && !String(f.wd||'r').includes(S.wd)) return false;
   const o=S.opt;
   if(o.ko && !(f.sc||[]).includes('ko')) return false;
   if(o.lat && (f.x || !(f.sc||[]).some(x=>x==='la'||x==='ko'))) return false;
@@ -399,6 +402,10 @@ function renderFilters(){
     const eb=S.data.filter(f=>baseFilter(f,'era')); const ec={}; eb.forEach(f=>ec[f.e]=(ec[f.e]||0)+1);
     h+=`<div class="chipsrow"><span class="lbl">ERA</span><button class="chip ${!S.era?'on':''}" data-era="">전체</button>`+ERAS.filter(e=>ec[e[0]]).map(e=>`<button class="chip ${S.era===e[0]?'on':''}" data-era="${e[0]}">${e[1]}<span class="n">${ec[e[0]]}</span></button>`).join('')+`</div>`;
   }
+  const wb=S.data.filter(f=>baseFilter(f,'wt')); const wc={l:0,h:0,m:0,v:0}; wb.forEach(f=>{ if(f.wl)wc.l++; if(f.wh)wc.h++; if((f.w||1)>=6)wc.m++; if(f.v)wc.v++; });
+  h+=`<div class="chipsrow"><span class="lbl">WEIGHT</span><button class="chip ${!S.wt?'on':''}" data-wt="">전체</button>`+[['l','가는 굵기 있음'],['h','굵은 굵기 있음'],['m','굵기 6개 이상'],['v','가변폰트']].map(([k,l])=>`<button class="chip ${S.wt===k?'on':''}" data-wt="${k}">${l}<span class="n">${wc[k]}</span></button>`).join('')+`</div>`;
+  const db=S.data.filter(f=>baseFilter(f,'wd')); const dc={c:0,r:0,e:0}; db.forEach(f=>{ const w=String(f.wd||'r'); for(const k of 'cre') if(w.includes(k)) dc[k]++; });
+  h+=`<div class="chipsrow"><span class="lbl">WIDTH</span><button class="chip ${!S.wd?'on':''}" data-wd="">전체</button>`+[['c','좁은 (컨덴스드)'],['r','보통'],['e','넓은 (익스텐디드)']].map(([k,l])=>`<button class="chip ${S.wd===k?'on':''}" data-wd="${k}">${l}<span class="n">${dc[k]}</span></button>`).join('')+`</div>`;
   const mb=S.data.filter(f=>baseFilter(f,'mood')); const moc={}; mb.forEach(f=>(f.mo||[]).forEach(m=>moc[m]=(moc[m]||0)+1));
   const moods=Object.keys(moc).filter(m=>moc[m]>=3).sort((a,b)=>moc[b]-moc[a]);
   if(moods.length) h+=`<div class="chipsrow"><span class="lbl">MOOD</span><button class="chip ${!S.mood?'on':''}" data-mood="">전체</button>`+moods.map(m=>`<button class="chip ${S.mood===m?'on':''}" data-mood="${esc(m)}">${esc(m)}<span class="n">${moc[m]}</span></button>`).join('')+`</div>`;
@@ -540,7 +547,7 @@ async function openDetail(id){
   const d=await getDesc(f); if(d) $('#dDesc').textContent=d;
 }
 async function getDesc(f){
-  const src=f.s; if(!S.desc[src]){ try{ S.desc[src]=await (await fetch('desc_'+src+'.json?v=1792935928')).json(); }catch(e){ S.desc[src]={}; } }
+  const src=f.s; if(!S.desc[src]){ try{ S.desc[src]=await (await fetch('desc_'+src+'.json?v=1792955296')).json(); }catch(e){ S.desc[src]={}; } }
   return S.desc[src][f.id]||'';
 }
 function fmtDate(d){ const m=/^(\d{4})-(\d\d)-(\d\d)/.exec(d||''); if(!m) return d||''; const w='일월화수목금토'[new Date(+m[1],m[2]-1,+m[3]).getDay()]; return `${m[1].slice(2)}.${m[2]}.${m[3]} <span style="color:var(--tx3);font-size:12px">${w}</span>`; }
@@ -649,6 +656,8 @@ document.addEventListener('click',e=>{
   if(d.sub){ S.subs.has(d.sub)?S.subs.delete(d.sub):S.subs.add(d.sub); renderFilters(); render(); return; }
   if(d.era!==undefined){ S.era=(S.tab==='era'&&S.era===d.era)?null:(d.era||null); renderFilters(); render(); return; }
   if(d.mood!==undefined){ S.mood=d.mood||null; renderFilters(); render(); return; }
+  if(d.wt!==undefined){ S.wt=d.wt||null; renderFilters(); render(); return; }
+  if(d.wd!==undefined){ S.wd=d.wd||null; renderFilters(); render(); return; }
   if(d.v){ S.view=d.v; SS('view',S.view); document.querySelectorAll('.vbtn').forEach(b=>b.classList.toggle('on',b===t)); render(true); return; }
   if(d.adobeon){ e.stopPropagation(); S.adobeOn=true; SS('adobeOn',true); loaded.clear(); render(true); toast('Adobe 미리보기 켜짐'); return; }
   if(d.star){ e.stopPropagation(); openFav(d.star); return; }
